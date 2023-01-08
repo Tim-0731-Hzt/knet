@@ -1,10 +1,10 @@
-project_name: {{ .PluginName }}
+project_name: knet
 release:
   github:
-    owner: {{ .Owner }}
-    name: {{ .Repo }}
+    owner: Tim-0731-Hzt
+    name: knet
 builds:
-  - id: {{ .PluginName }}
+  - id: knet
     goos:
     - linux
     - windows
@@ -17,12 +17,12 @@ builds:
       - GO111MODULE=on
     main: cmd/plugin/main.go
     ldflags: -s -w
-      -X github.com/{{ .Owner }}/{{ .Repo }}/pkg/version.version=
+      -X github.com/Tim-0731-Hzt/knet/pkg/version.version=
 archives:
-  - id: {{ .PluginName }}
+  - id: knet
     builds:
-    - {{ .PluginName }}
-    name_template: {{ `"{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"` }}
+    - knet
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
     - goos: windows
       format: zip
