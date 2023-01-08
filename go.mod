@@ -21,9 +21,8 @@ require (
 	github.com/pkg/errors v0.8.0 // indirect
 	github.com/spf13/cobra v0.0.4
 	github.com/spf13/viper v1.3.2
-	github.com/tj/go-spin v1.1.0
 	gopkg.in/inf.v0 v0.9.1 // indirect
-	k8s.io/api v0.0.0-20190313235455-40a48860b5ab // indirect
+	k8s.io/api v0.0.0-20190313235455-40a48860b5ab
 	k8s.io/apimachinery v0.0.0-20190313205120-d7deff9243b1
 	k8s.io/cli-runtime v0.0.0-20190314001948-2899ed30580f
 	k8s.io/client-go v11.0.0+incompatible

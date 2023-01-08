@@ -37,6 +37,9 @@ func (t *TcpdumpService) Validate() error {
 	return nil
 }
 func (t *TcpdumpService) Run() error {
-	t.kubeService.CreatePod("cdd")
+	err := t.kubeService.CreatePod("cdd")
+	if err != nil {
+		return err
+	}
 	return nil
 }

@@ -1,14 +1,15 @@
 package kube
 
 import (
+	"github.com/pkg/errors"
 	"io"
-	"time"
-
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"time"
 )
 
 type KubernetesApiService interface {
@@ -25,8 +26,15 @@ type KubernetesApiServiceImpl struct {
 
 func NewKubernetesApiServiceImpl() (k *KubernetesApiServiceImpl, err error) {
 	k = &KubernetesApiServiceImpl{}
+	configFlags := genericclioptions.NewConfigFlags(true)
+	rawConfig, err := configFlags.ToRawKubeConfigLoader().RawConfig()
+	_, exists := rawConfig.Contexts[rawConfig.CurrentContext]
+	if !exists {
+		return nil, errors.New("context doesn't exist")
+	}
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, nil)
+	configOverrides := &clientcmd.ConfigOverrides{}
+	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
 	k.restConfig, err = kubeConfig.ClientConfig()
 	if err != nil {
 		return nil, err
@@ -59,7 +67,7 @@ func (k *KubernetesApiServiceImpl) CreatePod(podName string) error {
 	}
 
 	privilegedContainer := v1.Container{
-		Name:            "containerName",
+		Name:            "container-name",
 		Image:           "busybox",
 		ImagePullPolicy: "IfNotPresent",
 		Command:         []string{"sh", "-c", "sleep 10000000"},
