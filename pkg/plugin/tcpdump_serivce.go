@@ -21,13 +21,22 @@ type Tcpdump struct {
 	UserSpecifiedNamespace string
 }
 
-func (t *TcpdumpService) Complete(cmd *cobra.Command, args []string) error {
+func NewTcpdumpService() *TcpdumpService {
+	return &TcpdumpService{}
+}
 
+func (t *TcpdumpService) Complete(cmd *cobra.Command, args []string) error {
+	var err error
+	t.kubeService, err = kube.NewKubernetesApiServiceImpl()
+	if err != nil {
+		return err
+	}
 	return nil
 }
 func (t *TcpdumpService) Validate() error {
 	return nil
 }
 func (t *TcpdumpService) Run() error {
+	t.kubeService.CreatePod("cdd")
 	return nil
 }

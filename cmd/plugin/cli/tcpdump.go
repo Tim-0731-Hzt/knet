@@ -18,6 +18,7 @@ package cli
 import (
 	"fmt"
 
+	"github.com/Tim-0731-Hzt/knet/pkg/plugin"
 	"github.com/spf13/cobra"
 )
 
@@ -31,8 +32,18 @@ and usage of using your command. For example:
 Cobra is a CLI library for Go that empowers applications.
 This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println("tcpdump called")
+		t := plugin.NewTcpdumpService()
+		err := t.Complete(cmd, args)
+		if err != nil {
+			return err
+		}
+		err = t.Run()
+		if err != nil {
+			return err
+		}
+		return nil
 	},
 }
 

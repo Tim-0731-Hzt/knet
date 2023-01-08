@@ -5,6 +5,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -43,6 +44,44 @@ func (k *KubernetesApiServiceImpl) ExecuteCommand(podName string, containerName 
 }
 
 func (k *KubernetesApiServiceImpl) CreatePod(podName string) error {
+	typeMetadata := metav1.TypeMeta{
+		Kind:       "Pod",
+		APIVersion: "v1",
+	}
+
+	objectMetadata := metav1.ObjectMeta{
+		GenerateName: "ksniff-",
+		Namespace:    k.targetNamespace,
+		Labels: map[string]string{
+			"app":                    "ksniff",
+			"app.kubernetes.io/name": "ksniff",
+		},
+	}
+
+	privilegedContainer := v1.Container{
+		Name:            "containerName",
+		Image:           "busybox",
+		ImagePullPolicy: "IfNotPresent",
+		Command:         []string{"sh", "-c", "sleep 10000000"},
+	}
+	podSpecs := v1.PodSpec{
+		NodeName:      "ap-southeast-1.10.0.0.86",
+		RestartPolicy: v1.RestartPolicyNever,
+		HostPID:       true,
+		Containers:    []v1.Container{privilegedContainer},
+	}
+
+	pod := v1.Pod{
+		TypeMeta:   typeMetadata,
+		ObjectMeta: objectMetadata,
+		Spec:       podSpecs,
+	}
+
+	_, err := k.clientset.CoreV1().Pods("default").Create(&pod)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
