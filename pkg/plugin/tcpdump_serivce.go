@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"fmt"
 	"github.com/Tim-0731-Hzt/knet/pkg/kube"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -11,7 +12,7 @@ import (
 
 type TcpdumpService struct {
 	kubeService *kube.KubernetesApiServiceImpl
-	termshark   *exec.Cmd
+	wireshark   *exec.Cmd
 	config      Tcpdump
 }
 
@@ -68,16 +69,38 @@ func (t *TcpdumpService) Validate() error {
 	return nil
 }
 func (t *TcpdumpService) Run() error {
-	pod, err := t.kubeService.GetPod("test")
+	pod, err := t.kubeService.GetPod("nginx")
 	if err != nil {
 		return err
 	}
-	_, _, err = t.kubeService.GenerateDebugContainer(pod, "test")
+	_, _, err = t.kubeService.GenerateDebugContainer(pod, "nginx")
+	if err != nil {
+		return err
+	}
+	t.wireshark = exec.Command("wireshark", "-k", "-i", "-")
+	stdinWriter, err := t.wireshark.StdinPipe()
 	if err != nil {
 		return err
 	}
 
-	return nil
+	executeTcpdumpRequest := kube.ExecCommandRequest{
+		PodName:   "nginx",
+		Container: "debug",
+		Command:   []string{"/usr/bin/tcpdump", "-w", "-"},
+		StdOut:    stdinWriter,
+	}
+
+	go func() {
+		_, err = t.kubeService.ExecuteCommand(executeTcpdumpRequest)
+		if err != nil {
+			_ = t.wireshark.Process.Kill()
+		}
+	}()
+	err = t.wireshark.Run()
+	if err != nil {
+		fmt.Println("hello")
+	}
+	return err
 }
 
 func (t *TcpdumpService) findContainerId(pod *v1.Pod) error {

@@ -15,12 +15,15 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/client-go/tools/remotecommand"
+	utilexec "k8s.io/client-go/util/exec"
 	"k8s.io/kubectl/pkg/cmd/debug"
+	"k8s.io/kubectl/pkg/scheme"
 	"time"
 )
 
 type KubernetesApiService interface {
-	ExecuteCommand(podName string, containerName string, command []string, stdOut io.Writer) (int, error)
+	ExecuteCommand(req ExecCommandRequest) (int, error)
 	CreatePod(podName string) error
 	DeletePod(podName string, ks KubernetesApiService) error
 	GetPod(podName string) (*v1.Pod, error)
@@ -32,6 +35,19 @@ type KubernetesApiServiceImpl struct {
 	resultingContext *api.Context
 	targetNamespace  string
 	applier          debug.ProfileApplier
+}
+
+type ExecCommandRequest struct {
+	PodName   string
+	Container string
+	Command   []string
+	StdIn     io.Reader
+	StdOut    io.Writer
+	StdErr    io.Writer
+}
+
+type Writer struct {
+	Output string
 }
 
 func NewKubernetesApiServiceImpl(UserSpecifiedNamespace string) (k *KubernetesApiServiceImpl, err error) {
@@ -65,8 +81,35 @@ func NewKubernetesApiServiceImpl(UserSpecifiedNamespace string) (k *KubernetesAp
 	return k, nil
 }
 
-func (k *KubernetesApiServiceImpl) ExecuteCommand(podName string, containerName string, command []string, stdOut io.Writer) (int, error) {
-	return 0, nil
+func (k *KubernetesApiServiceImpl) ExecuteCommand(req ExecCommandRequest) (int, error) {
+	execRequest := k.clientset.CoreV1().RESTClient().Post().Resource("pods").Name(req.PodName).Namespace("default").SubResource("exec")
+	execRequest.VersionedParams(&v1.PodExecOptions{
+		Container: req.Container,
+		Command:   req.Command,
+		Stdin:     req.StdIn != nil,
+		Stdout:    req.StdOut != nil,
+		Stderr:    false,
+		TTY:       false,
+	}, scheme.ParameterCodec)
+	exec, err := remotecommand.NewSPDYExecutor(k.restConfig, "POST", execRequest.URL())
+	if err != nil {
+		fmt.Println("hello")
+		return 0, nil
+	}
+	err = exec.Stream(remotecommand.StreamOptions{
+		Stdin:  req.StdIn,
+		Stdout: req.StdOut,
+		Tty:    false,
+	})
+	var exitCode = 0
+	if err != nil {
+		if exitErr, ok := err.(utilexec.ExitError); ok && exitErr.Exited() {
+			exitCode = exitErr.ExitStatus()
+			fmt.Println("hello")
+			return 1, nil
+		}
+	}
+	return exitCode, nil
 }
 
 func (k *KubernetesApiServiceImpl) CreatePod(podName string) error {
@@ -130,8 +173,9 @@ func (k *KubernetesApiServiceImpl) GetPod(podName string) (*v1.Pod, error) {
 func (k *KubernetesApiServiceImpl) GenerateDebugContainer(pod *v1.Pod, containerName string) (*v1.Pod, *v1.EphemeralContainer, error) {
 	ecc := v1.EphemeralContainerCommon{
 		Name:            "debug",
-		Image:           "busybox",
+		Image:           "nicolaka/netshoot",
 		ImagePullPolicy: v1.PullIfNotPresent,
+		Args:            []string{"sleep", "3600"},
 	}
 	ec := &v1.EphemeralContainer{
 		EphemeralContainerCommon: ecc,
