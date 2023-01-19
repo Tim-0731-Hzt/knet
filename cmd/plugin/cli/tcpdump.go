@@ -16,47 +16,51 @@ limitations under the License.
 package cli
 
 import (
-	"fmt"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 
 	"github.com/Tim-0731-Hzt/knet/pkg/plugin"
 	"github.com/spf13/cobra"
 )
 
-// tcpdumpCmd represents the tcpdump command
-var tcpdumpCmd = &cobra.Command{
-	Use:   "tcpdump",
-	Short: "perform tcpdump on target pod",
-	Long: `A longer description that spans multiple lines and likely contains examples
+func init() {
+	c := plugin.NewTcpdumpConfig()
+	t := plugin.NewTcpdumpService(c)
+	// tcpdumpCmd represents the tcpdump command
+	var tcpdumpCmd = &cobra.Command{
+		Use:   "tcpdump",
+		Short: "perform tcpdump on target pod",
+		Long: `A longer description that spans multiple lines and likely contains examples
 and usage of using your command. For example:
 
 Cobra is a CLI library for Go that empowers applications.
 This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("tcpdump called")
-		t := plugin.NewTcpdumpService()
-		err := t.Complete(cmd, args)
-		if err != nil {
-			return err
-		}
-		err = t.Run()
-		if err != nil {
-			return err
-		}
-		return nil
-	},
-}
+		RunE: func(cmd *cobra.Command, args []string) error {
+			log.Infof("tcpdump called")
+			err := t.Complete(cmd, args)
+			if err != nil {
+				return err
+			}
+			err = t.Validate()
+			if err != nil {
+				return err
+			}
+			err = t.Run()
+			if err != nil {
+				return err
+			}
+			return nil
+		},
+	}
 
-func init() {
+	tcpdumpCmd.Flags().StringVarP(&t.Config.UserSpecifiedNamespace, "namespace", "n", "", "namespace (optional)")
+	_ = viper.BindEnv("namespace", "KUBECTL_PLUGINS_CURRENT_NAMESPACE")
+	_ = viper.BindPFlag("namespace", cmd.Flags().Lookup("namespace"))
+
+	tcpdumpCmd.Flags().StringVarP(&t.Config.UserSpecifiedPodName, "pod", "p", "", "pod (optional)")
+	_ = viper.BindEnv("pod", "KUBECTL_PLUGINS_LOCAL_FLAG_POD")
+	_ = viper.BindPFlag("pod", cmd.Flags().Lookup("pod"))
+
 	cmd.AddCommand(tcpdumpCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// tcpdumpCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// tcpdumpCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }

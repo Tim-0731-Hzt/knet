@@ -26,7 +26,7 @@ type KubernetesApiService interface {
 	ExecuteCommand(req ExecCommandRequest) (int, error)
 	CreatePod(podName string) error
 	DeletePod(podName string, ks KubernetesApiService) error
-	GetPod(podName string) (*v1.Pod, error)
+	GetPod(podName string, namespace string) (*v1.Pod, error)
 	GenerateDebugContainer(pod *v1.Pod, containerName string) (*v1.Pod, *v1.EphemeralContainer, error)
 }
 type KubernetesApiServiceImpl struct {
@@ -71,9 +71,7 @@ func NewKubernetesApiServiceImpl(UserSpecifiedNamespace string) (k *KubernetesAp
 		return nil, err
 	}
 	k.resultingContext = currentContext.DeepCopy()
-	if UserSpecifiedNamespace != "" {
-		k.resultingContext.Namespace = UserSpecifiedNamespace
-	}
+	k.resultingContext.Namespace = UserSpecifiedNamespace
 	k.applier, err = debug.NewProfileApplier(debug.ProfileLegacy)
 	if err != nil {
 		return nil, err
@@ -166,8 +164,8 @@ func (k *KubernetesApiServiceImpl) DeletePod(podName string, ks KubernetesApiSer
 	return nil
 }
 
-func (k *KubernetesApiServiceImpl) GetPod(podName string) (*v1.Pod, error) {
-	return k.clientset.CoreV1().Pods("default").Get(context.TODO(), podName, metav1.GetOptions{})
+func (k *KubernetesApiServiceImpl) GetPod(podName string, namespace string) (*v1.Pod, error) {
+	return k.clientset.CoreV1().Pods(namespace).Get(context.TODO(), podName, metav1.GetOptions{})
 }
 
 func (k *KubernetesApiServiceImpl) GenerateDebugContainer(pod *v1.Pod, containerName string) (*v1.Pod, *v1.EphemeralContainer, error) {
