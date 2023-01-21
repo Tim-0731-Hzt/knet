@@ -17,3 +17,7 @@ func (t *InfoService) Validate() error {
 func (t *InfoService) Run() error {
 	return nil
 }
+
+func (t *InfoService) cleanup() error {
+	return nil
+}

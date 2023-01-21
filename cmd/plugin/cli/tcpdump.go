@@ -23,19 +23,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var tcpdumpExample = "kubectl kdbg tcpdump -n default -p nginx | termshark -r -"
+
 func init() {
 	c := plugin.NewTcpdumpConfig()
 	t := plugin.NewTcpdumpService(c)
 	// tcpdumpCmd represents the tcpdump command
 	var tcpdumpCmd = &cobra.Command{
-		Use:   "tcpdump",
-		Short: "perform tcpdump on target pod",
-		Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+		Use:     "tcpdump",
+		Short:   "perform tcpdump on target pod",
+		Example: tcpdumpExample,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			log.Infof("tcpdump called")
 			err := t.Complete(cmd, args)

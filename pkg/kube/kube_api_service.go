@@ -27,7 +27,7 @@ type KubernetesApiService interface {
 	CreatePod(podName string) error
 	DeletePod(podName string, ks KubernetesApiService) error
 	GetPod(podName string, namespace string) (*v1.Pod, error)
-	GenerateDebugContainer(pod *v1.Pod, containerName string) (*v1.Pod, *v1.EphemeralContainer, error)
+	GenerateDebugContainer(podName string, namespace string, containerName string) (*v1.Pod, *v1.EphemeralContainer, error)
 }
 type KubernetesApiServiceImpl struct {
 	clientset        *kubernetes.Clientset
@@ -39,6 +39,7 @@ type KubernetesApiServiceImpl struct {
 
 type ExecCommandRequest struct {
 	PodName   string
+	Namespace string
 	Container string
 	Command   []string
 	StdIn     io.Reader
@@ -80,7 +81,7 @@ func NewKubernetesApiServiceImpl(UserSpecifiedNamespace string) (k *KubernetesAp
 }
 
 func (k *KubernetesApiServiceImpl) ExecuteCommand(req ExecCommandRequest) (int, error) {
-	execRequest := k.clientset.CoreV1().RESTClient().Post().Resource("pods").Name(req.PodName).Namespace("default").SubResource("exec")
+	execRequest := k.clientset.CoreV1().RESTClient().Post().Resource("pods").Name(req.PodName).Namespace(req.Namespace).SubResource("exec")
 	execRequest.VersionedParams(&v1.PodExecOptions{
 		Container: req.Container,
 		Command:   req.Command,
@@ -91,10 +92,9 @@ func (k *KubernetesApiServiceImpl) ExecuteCommand(req ExecCommandRequest) (int, 
 	}, scheme.ParameterCodec)
 	exec, err := remotecommand.NewSPDYExecutor(k.restConfig, "POST", execRequest.URL())
 	if err != nil {
-		fmt.Println("hello")
 		return 0, nil
 	}
-	err = exec.Stream(remotecommand.StreamOptions{
+	err = exec.StreamWithContext(context.TODO(), remotecommand.StreamOptions{
 		Stdin:  req.StdIn,
 		Stdout: req.StdOut,
 		Tty:    false,
@@ -103,7 +103,6 @@ func (k *KubernetesApiServiceImpl) ExecuteCommand(req ExecCommandRequest) (int, 
 	if err != nil {
 		if exitErr, ok := err.(utilexec.ExitError); ok && exitErr.Exited() {
 			exitCode = exitErr.ExitStatus()
-			fmt.Println("hello")
 			return 1, nil
 		}
 	}
@@ -168,9 +167,13 @@ func (k *KubernetesApiServiceImpl) GetPod(podName string, namespace string) (*v1
 	return k.clientset.CoreV1().Pods(namespace).Get(context.TODO(), podName, metav1.GetOptions{})
 }
 
-func (k *KubernetesApiServiceImpl) GenerateDebugContainer(pod *v1.Pod, containerName string) (*v1.Pod, *v1.EphemeralContainer, error) {
+func (k *KubernetesApiServiceImpl) GenerateDebugContainer(podName string, namespace string, containerName string) (*v1.Pod, *v1.EphemeralContainer, error) {
+	pod, err := k.GetPod(podName, namespace)
+	if err != nil {
+		return nil, nil, err
+	}
 	ecc := v1.EphemeralContainerCommon{
-		Name:            "debug",
+		Name:            "debug3",
 		Image:           "nicolaka/netshoot",
 		ImagePullPolicy: v1.PullIfNotPresent,
 		Args:            []string{"sleep", "3600"},

@@ -1,12 +1,12 @@
 package plugin
 
 import (
-	"fmt"
 	"github.com/Tim-0731-Hzt/knet/pkg/kube"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	v1 "k8s.io/api/core/v1"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -15,6 +15,7 @@ type TcpdumpService struct {
 	kubeService *kube.KubernetesApiServiceImpl
 	Wireshark   *exec.Cmd
 	Config      *Tcpdump
+	TargetPod   *v1.Pod
 }
 
 type Tcpdump struct {
@@ -56,6 +57,7 @@ func (t *TcpdumpService) Validate() error {
 	if err != nil {
 		return err
 	}
+	t.TargetPod = pod.DeepCopy()
 	if pod.Status.Phase == v1.PodSucceeded || pod.Status.Phase == v1.PodFailed {
 		return errors.Errorf("cannot sniff on a container in a completed pod; current phase is %s", pod.Status.Phase)
 	}
@@ -75,39 +77,40 @@ func (t *TcpdumpService) Validate() error {
 }
 func (t *TcpdumpService) Run() error {
 	log.Infof("start tcpdump on pod %s", t.Config.UserSpecifiedPodName)
-	pod, err := t.kubeService.GetPod(t.Config.UserSpecifiedPodName, t.Config.UserSpecifiedNamespace)
-	if err != nil {
-		return err
-	}
 	log.Infof("creating ephemeral container")
-	_, _, err = t.kubeService.GenerateDebugContainer(pod, t.Config.UserSpecifiedContainer)
+	_, _, err := t.kubeService.GenerateDebugContainer(t.Config.UserSpecifiedPodName, t.Config.UserSpecifiedNamespace, t.Config.UserSpecifiedContainer)
 	if err != nil {
 		return err
 	}
-	t.Wireshark = exec.Command("wireshark", "-k", "-i", "-")
-	stdinWriter, err := t.Wireshark.StdinPipe()
-	if err != nil {
-		return err
-	}
-
+	/*
+		t.Wireshark = exec.Command("termshark", "-k", "-")
+		stdinWriter, err := t.Wireshark.StdinPipe()
+		if err != nil {
+			return err
+		}
+	*/
+	fileWriter := os.Stdout
 	executeTcpdumpRequest := kube.ExecCommandRequest{
 		PodName:   t.Config.UserSpecifiedPodName,
-		Container: "debug",
+		Namespace: t.Config.UserSpecifiedNamespace,
+		Container: "debug3",
 		Command:   []string{"/usr/bin/tcpdump", "-w", "-"},
-		StdOut:    stdinWriter,
+		StdOut:    fileWriter,
 	}
-
-	go func() {
-		_, err = t.kubeService.ExecuteCommand(executeTcpdumpRequest)
-		if err != nil {
-			_ = t.Wireshark.Process.Kill()
-		}
-	}()
-	err = t.Wireshark.Run()
+	log.Infof("spawning wireshark!")
+	//go func() {
+	_, err = t.kubeService.ExecuteCommand(executeTcpdumpRequest)
 	if err != nil {
-		fmt.Println("hello")
+		//_ = t.Wireshark.Process.Kill()
+		//return
 	}
-	return err
+	//}()
+
+	//err = t.Wireshark.Run()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (t *TcpdumpService) findContainerId(pod *v1.Pod) error {
@@ -124,4 +127,8 @@ func (t *TcpdumpService) findContainerId(pod *v1.Pod) error {
 	}
 
 	return errors.Errorf("couldn't find container: '%s' in pod: '%s'", t.Config.UserSpecifiedContainer, t.Config.UserSpecifiedPodName)
+}
+
+func (t *TcpdumpService) cleanup() error {
+	return nil
 }

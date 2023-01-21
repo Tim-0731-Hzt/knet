@@ -8,4 +8,5 @@ type KnetService interface {
 	Complete(cmd *cobra.Command, args []string) error
 	Validate() error
 	Run() error
+	cleanup() error
 }
