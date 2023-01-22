@@ -45,7 +45,7 @@ func (t *TcpdumpService) Complete(cmd *cobra.Command, args []string) error {
 		return errors.New("pod name is empty")
 	}
 	var err error
-	t.kubeService, err = kube.NewKubernetesApiServiceImpl(t.Config.UserSpecifiedNamespace)
+	t.kubeService, err = kube.NewKubernetesApiServiceImpl()
 	if err != nil {
 		return err
 	}
@@ -93,7 +93,7 @@ func (t *TcpdumpService) Run() error {
 	executeTcpdumpRequest := kube.ExecCommandRequest{
 		PodName:   t.Config.UserSpecifiedPodName,
 		Namespace: t.Config.UserSpecifiedNamespace,
-		Container: "debug3",
+		Container: "debug4",
 		Command:   []string{"/usr/bin/tcpdump", "-w", "-"},
 		StdOut:    fileWriter,
 	}
