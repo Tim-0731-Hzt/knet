@@ -2,7 +2,7 @@ package plugin
 
 import (
 	"github.com/Tim-0731-Hzt/knet/pkg/kube"
-	"github.com/docker/docker/pkg/namesgenerator"
+	"github.com/goombaio/namegenerator"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 type TcpdumpService struct {
@@ -79,7 +80,7 @@ func (t *TcpdumpService) Validate() error {
 func (t *TcpdumpService) Run() error {
 	log.Infof("start tcpdump on pod %s", t.Config.UserSpecifiedPodName)
 	log.Infof("creating ephemeral container")
-	debugContainerName := namesgenerator.GetRandomName(0)
+	debugContainerName := namegenerator.NewNameGenerator(time.Now().UTC().UnixNano()).Generate()
 	_, _, err := t.kubeService.GenerateDebugContainer(t.Config.UserSpecifiedPodName, t.Config.UserSpecifiedNamespace, t.Config.UserSpecifiedContainer, debugContainerName)
 	if err != nil {
 		log.WithError(err).Errorf("failed to create debug container")

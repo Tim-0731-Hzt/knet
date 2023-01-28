@@ -6,6 +6,7 @@ require (
 	github.com/docker/docker v20.10.23+incompatible // indirect
 	github.com/fatih/color v1.7.0
 	github.com/google/uuid v1.3.0 // indirect
+	github.com/goombaio/namegenerator v0.0.0-20181006234301-989e774b106e // indirect
 	github.com/imdario/mergo v0.3.7 // indirect
 	github.com/mattn/go-colorable v0.0.9 // indirect
 	github.com/mattn/go-isatty v0.0.7 // indirect
