@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"github.com/Tim-0731-Hzt/knet/pkg/kube"
+	"github.com/docker/docker/pkg/namesgenerator"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -78,36 +79,23 @@ func (t *TcpdumpService) Validate() error {
 func (t *TcpdumpService) Run() error {
 	log.Infof("start tcpdump on pod %s", t.Config.UserSpecifiedPodName)
 	log.Infof("creating ephemeral container")
-	_, _, err := t.kubeService.GenerateDebugContainer(t.Config.UserSpecifiedPodName, t.Config.UserSpecifiedNamespace, t.Config.UserSpecifiedContainer)
+	debugContainerName := namesgenerator.GetRandomName(0)
+	_, _, err := t.kubeService.GenerateDebugContainer(t.Config.UserSpecifiedPodName, t.Config.UserSpecifiedNamespace, t.Config.UserSpecifiedContainer, debugContainerName)
 	if err != nil {
+		log.WithError(err).Errorf("failed to create debug container")
 		return err
 	}
-	/*
-		t.Wireshark = exec.Command("termshark", "-k", "-")
-		stdinWriter, err := t.Wireshark.StdinPipe()
-		if err != nil {
-			return err
-		}
-	*/
-	fileWriter := os.Stdout
 	executeTcpdumpRequest := kube.ExecCommandRequest{
 		PodName:   t.Config.UserSpecifiedPodName,
 		Namespace: t.Config.UserSpecifiedNamespace,
-		Container: "debug4",
+		Container: debugContainerName,
 		Command:   []string{"/usr/bin/tcpdump", "-w", "-"},
-		StdOut:    fileWriter,
+		StdOut:    os.Stdout,
 	}
-	log.Infof("spawning wireshark!")
-	//go func() {
+	log.Infof("spawning termshark!")
 	_, err = t.kubeService.ExecuteCommand(executeTcpdumpRequest)
 	if err != nil {
-		//_ = t.Wireshark.Process.Kill()
-		//return
-	}
-	//}()
-
-	//err = t.Wireshark.Run()
-	if err != nil {
+		log.WithError(err).Errorf("failed to execute tcpdump")
 		return err
 	}
 	return nil

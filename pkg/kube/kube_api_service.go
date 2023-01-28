@@ -4,23 +4,28 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/pkg/errors"
+	"golang.org/x/crypto/ssh/terminal"
 	"io"
 	apps_v1 "k8s.io/api/apps/v1"
+	api_v1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	node_v1 "k8s.io/api/node/v1"
+	rbac "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
-	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/remotecommand"
 	utilexec "k8s.io/client-go/util/exec"
 	"k8s.io/kubectl/pkg/cmd/debug"
+	"k8s.io/kubectl/pkg/cmd/wait"
 	"k8s.io/kubectl/pkg/scheme"
+	"os"
 	"time"
 )
 
@@ -31,7 +36,7 @@ type KubernetesApiService interface {
 	CreatePod(podName string) error
 	DeletePod(podName string, ks KubernetesApiService) error
 	GetPod(podName string, namespace string) (*v1.Pod, error)
-	GenerateDebugContainer(podName string, namespace string, containerName string) (*v1.Pod, *v1.EphemeralContainer, error)
+	GenerateDebugContainer(podName string, namespace string, containerName string, debugContainerName string) (*v1.Pod, *v1.EphemeralContainer, error)
 	DeployDaemonSet(d *apps_v1.DaemonSet) error
 }
 type KubernetesApiServiceImpl struct {
@@ -58,15 +63,6 @@ type Writer struct {
 
 func NewKubernetesApiServiceImpl() (k *KubernetesApiServiceImpl, err error) {
 	k = &KubernetesApiServiceImpl{}
-	//rawConfig, err := KubernetesConfigFlags.ToRawKubeConfigLoader().RawConfig()
-	//currentContext, exists := rawConfig.Contexts[rawConfig.CurrentContext]
-	//if !exists {
-	//	return nil, errors.New("context doesn't exist")
-	//}
-	//loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-	//configOverrides := &clientcmd.ConfigOverrides{}
-	//kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
-	//k.restConfig, err = kubeConfig.ClientConfig()
 	k.restConfig, err = KubernetesConfigFlags.ToRESTConfig()
 	if err != nil {
 		return nil, err
@@ -77,8 +73,6 @@ func NewKubernetesApiServiceImpl() (k *KubernetesApiServiceImpl, err error) {
 	if err != nil {
 		return nil, err
 	}
-	//k.resultingContext = currentContext.DeepCopy()
-	//k.resultingContext.Namespace = UserSpecifiedNamespace
 	k.applier, err = debug.NewProfileApplier(debug.ProfileLegacy)
 	if err != nil {
 		return nil, err
@@ -101,7 +95,6 @@ func (k *KubernetesApiServiceImpl) ExecuteCommand(req ExecCommandRequest) (int, 
 		return 0, nil
 	}
 	err = exec.StreamWithContext(context.TODO(), remotecommand.StreamOptions{
-		Stdin:  req.StdIn,
 		Stdout: req.StdOut,
 		Tty:    false,
 	})
@@ -109,7 +102,7 @@ func (k *KubernetesApiServiceImpl) ExecuteCommand(req ExecCommandRequest) (int, 
 	if err != nil {
 		if exitErr, ok := err.(utilexec.ExitError); ok && exitErr.Exited() {
 			exitCode = exitErr.ExitStatus()
-			return 1, nil
+			return 1, err
 		}
 	}
 	return exitCode, nil
@@ -173,13 +166,13 @@ func (k *KubernetesApiServiceImpl) GetPod(podName string, namespace string) (*v1
 	return k.clientset.CoreV1().Pods(namespace).Get(context.TODO(), podName, metav1.GetOptions{})
 }
 
-func (k *KubernetesApiServiceImpl) GenerateDebugContainer(podName string, namespace string, containerName string) (*v1.Pod, *v1.EphemeralContainer, error) {
+func (k *KubernetesApiServiceImpl) GenerateDebugContainer(podName string, namespace string, containerName string, debugContainerName string) (*v1.Pod, *v1.EphemeralContainer, error) {
 	pod, err := k.GetPod(podName, namespace)
 	if err != nil {
 		return nil, nil, err
 	}
 	ecc := v1.EphemeralContainerCommon{
-		Name:            "debug4",
+		Name:            debugContainerName,
 		Image:           "nicolaka/netshoot",
 		ImagePullPolicy: v1.PullIfNotPresent,
 		Args:            []string{"sleep", "3600"},
@@ -191,7 +184,7 @@ func (k *KubernetesApiServiceImpl) GenerateDebugContainer(podName string, namesp
 
 	copied := pod.DeepCopy()
 	copied.Spec.EphemeralContainers = append(copied.Spec.EphemeralContainers, *ec)
-	if err := k.applier.Apply(copied, "debug", copied); err != nil {
+	if err := k.applier.Apply(copied, debugContainerName, copied); err != nil {
 		return nil, nil, err
 	}
 
@@ -206,7 +199,7 @@ func (k *KubernetesApiServiceImpl) GenerateDebugContainer(podName string, namesp
 		return nil, nil, err
 	}
 	opt := metav1.PatchOptions{}
-	_, err = k.clientset.CoreV1().Pods("default").Patch(context.TODO(), copied.Name, types.StrategicMergePatchType, patch, opt, "ephemeralcontainers")
+	_, err = k.clientset.CoreV1().Pods(namespace).Patch(context.TODO(), copied.Name, types.StrategicMergePatchType, patch, opt, "ephemeralcontainers")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -229,29 +222,216 @@ func (k *KubernetesApiServiceImpl) CreateRuntimeClass(d *node_v1.RuntimeClass) e
 	return err
 }
 
-func (k *KubernetesApiServiceImpl) isPodRunning(podName, namespace string) wait.ConditionFunc {
-	return func() (bool, error) {
-		listOptions := metav1.ListOptions{
-			LabelSelector: "name=kata-deploy",
+func (k *KubernetesApiServiceImpl) CreateRbac(sva *api_v1.ServiceAccount, cr *rbac.ClusterRole, crb *rbac.ClusterRoleBinding) error {
+	_, err := k.clientset.CoreV1().ServiceAccounts("kube-system").Create(context.TODO(), sva, metav1.CreateOptions{})
+	if err != nil {
+		return err
+	}
+	_, err = k.clientset.RbacV1().ClusterRoles().Create(context.TODO(), cr, metav1.CreateOptions{})
+	if err != nil {
+		return err
+	}
+	_, err = k.clientset.RbacV1().ClusterRoleBindings().Create(context.TODO(), crb, metav1.CreateOptions{})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (k *KubernetesApiServiceImpl) DeleteDaemonSet(d string) error {
+	err := k.clientset.AppsV1().DaemonSets("kube-system").Delete(context.TODO(), d, metav1.DeleteOptions{})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (k *KubernetesApiServiceImpl) DeleteRuntimeClass() error {
+	err := k.clientset.NodeV1().RuntimeClasses().Delete(context.TODO(), "kata-qemu", metav1.DeleteOptions{})
+	if err != nil {
+		return err
+	}
+	err = k.clientset.NodeV1().RuntimeClasses().Delete(context.TODO(), "kata-clh", metav1.DeleteOptions{})
+	if err != nil {
+		return err
+	}
+	err = k.clientset.NodeV1().RuntimeClasses().Delete(context.TODO(), "kata-fc", metav1.DeleteOptions{})
+	if err != nil {
+		return err
+	}
+	err = k.clientset.NodeV1().RuntimeClasses().Delete(context.TODO(), "kata-dragonball", metav1.DeleteOptions{})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (k *KubernetesApiServiceImpl) DeleteRbac() error {
+	err := k.clientset.CoreV1().ServiceAccounts("kube-system").Delete(context.TODO(), "kata-label-node", metav1.DeleteOptions{})
+	if err != nil {
+		return err
+	}
+	err = k.clientset.RbacV1().ClusterRoles().Delete(context.TODO(), "node-labeler", metav1.DeleteOptions{})
+	if err != nil {
+		return err
+	}
+	err = k.clientset.RbacV1().ClusterRoleBindings().Delete(context.TODO(), "kata-label-node-rb", metav1.DeleteOptions{})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (k *KubernetesApiServiceImpl) GetKataDeployPod() (*v1.Pod, error) {
+	listOptions := metav1.ListOptions{
+		LabelSelector: "name=kata-deploy",
+	}
+	pods, err := k.clientset.CoreV1().Pods("kube-system").List(context.TODO(), listOptions)
+	if err != nil {
+		return nil, err
+	}
+	pod := pods.Items[0]
+	return &pod, nil
+}
+
+func (k *KubernetesApiServiceImpl) ExecuteCleanupCommand() error {
+	listOptions := metav1.ListOptions{
+		LabelSelector: "kubelet-kata-cleanup",
+	}
+	pods, err := k.clientset.CoreV1().Pods("kube-system").List(context.TODO(), listOptions)
+	if err != nil {
+		return err
+	}
+
+	for _, pod := range pods.Items {
+		executeCleanupRequest := ExecCommandRequest{
+			PodName:   pod.Name,
+			Namespace: pod.Namespace,
+			Container: "kube-kata",
+			Command:   []string{"bash", "-c", "/opt/kata-artifacts/scripts/kata-deploy.sh cleanup"},
+			StdOut:    os.Stdout,
 		}
-		pods, err := k.clientset.CoreV1().Pods(namespace).List(context.TODO(), listOptions)
+		if _, err := k.ExecuteCommand(executeCleanupRequest); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (k *KubernetesApiServiceImpl) ExecuteVMCommand(req ExecCommandRequest) (int, error) {
+	execRequest := k.clientset.CoreV1().RESTClient().Post().Resource("pods").Name(req.PodName).Namespace(req.Namespace).SubResource("exec")
+	execRequest.VersionedParams(&v1.PodExecOptions{
+		Container: req.Container,
+		Command:   req.Command,
+		Stdin:     true,
+		Stdout:    true,
+		Stderr:    true,
+		TTY:       true,
+	}, scheme.ParameterCodec)
+	exec, err := remotecommand.NewSPDYExecutor(k.restConfig, "POST", execRequest.URL())
+	if err != nil {
+		return 0, nil
+	}
+	if !terminal.IsTerminal(0) || !terminal.IsTerminal(1) {
+		return 0, err
+	}
+	oldState, err := terminal.MakeRaw(0)
+	if err != nil {
+		return 1, err
+	}
+	defer func(fd int, oldState *terminal.State) {
+		err := terminal.Restore(fd, oldState)
 		if err != nil {
-			return false, err
+
 		}
-		for _, pod := range pods.Items {
-			switch pod.Status.Phase {
-			case v1.PodRunning:
-				return true, nil
-			case v1.PodFailed, v1.PodSucceeded:
-				return false, errors.New("pod name is empty")
+	}(0, oldState)
+
+	// 用IO读写替换 os stdout
+	screen := struct {
+		io.Reader
+		io.Writer
+	}{os.Stdin, os.Stdout}
+	err = exec.StreamWithContext(context.TODO(), remotecommand.StreamOptions{
+		Stdin:  screen,
+		Stdout: screen,
+		Stderr: screen,
+		Tty:    false,
+	})
+	var exitCode = 0
+	if err != nil {
+		if exitErr, ok := err.(utilexec.ExitError); ok && exitErr.Exited() {
+			exitCode = exitErr.ExitStatus()
+			return 1, nil
+		}
+	}
+	return exitCode, nil
+}
+
+func (k *KubernetesApiServiceImpl) createPodWatcher(ctx context.Context, ls string, ns string) (watch.Interface, error) {
+	listOptions := metav1.ListOptions{
+		LabelSelector: ls,
+	}
+	return k.clientset.CoreV1().Pods(ns).Watch(ctx, listOptions)
+}
+
+func (k *KubernetesApiServiceImpl) WaitPodDeleted(ctx context.Context, ls string, ns string) error {
+	watcher, err := k.createPodWatcher(ctx, ls, ns)
+	if err != nil {
+		return err
+	}
+
+	defer watcher.Stop()
+
+	for {
+		select {
+		case event := <-watcher.ResultChan():
+			if event.Type == watch.Deleted {
+				return nil
 			}
 		}
-		return false, nil
 	}
 }
 
-// WaitForPodRunning Poll up to timeout seconds for pod to enter running state.
-// Returns an error if the pod never enters the running state.
-func (k *KubernetesApiServiceImpl) WaitForPodRunning(namespace, podName string, timeout time.Duration) error {
-	return wait.PollImmediate(time.Minute, timeout, k.isPodRunning(podName, namespace))
+func (k *KubernetesApiServiceImpl) WaitPodRunning(ctx context.Context, ls string, ns string) error {
+	watcher, err := k.createPodWatcher(ctx, ls, ns)
+	if err != nil {
+		return err
+	}
+
+	defer watcher.Stop()
+
+	for {
+		select {
+		case event := <-watcher.ResultChan():
+			pod := event.Object.(*v1.Pod)
+
+			if pod.Status.Phase == v1.PodRunning {
+				return nil
+			}
+		}
+	}
+}
+
+func (k *KubernetesApiServiceImpl) Wait(ls string) error {
+	dynamicClient, err := dynamic.NewForConfig(k.restConfig)
+	if err != nil {
+		return err
+	}
+	resourceBuilderFlags := &genericclioptions.ResourceBuilderFlags{
+		LabelSelector: &ls,
+	}
+	builder := resourceBuilderFlags.ToBuilder(KubernetesConfigFlags, []string{"pod"})
+	o := &wait.WaitOptions{
+		ResourceFinder: builder,
+		DynamicClient:  dynamicClient,
+		Timeout:        time.Duration(10) * time.Minute,
+		ForCondition:   "delete",
+		ConditionFn:    wait.IsDeleted,
+	}
+	err = o.RunWait()
+	if err != nil {
+		return err
+
+	}
+	return nil
 }

@@ -16,11 +16,9 @@ limitations under the License.
 package cli
 
 import (
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
-
 	"github.com/Tim-0731-Hzt/knet/pkg/plugin"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var tcpdumpExample = "kubectl kdbg tcpdump -n default -p nginx | termshark -r -"
@@ -34,7 +32,7 @@ func init() {
 		Short:   "perform tcpdump on target pod",
 		Example: tcpdumpExample,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			log.Infof("tcpdump called")
+			//logger.Log.Info("tcpdump called")
 			err := t.Complete(cmd, args)
 			if err != nil {
 				return err
