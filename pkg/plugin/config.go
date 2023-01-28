@@ -127,7 +127,7 @@ var (
 							Lifecycle: &api_v1.Lifecycle{
 								PreStop: &api_v1.LifecycleHandler{
 									Exec: &api_v1.ExecAction{
-										Command: []string{"sleep", "6m"},
+										Command: []string{"bash", "-c", "/opt/kata-artifacts/scripts/kata-deploy.sh cleanup"},
 									},
 								},
 							},
@@ -255,7 +255,7 @@ var (
 						{
 							Name:    "kube-kata",
 							Image:   "quay.io/kata-containers/kata-deploy:stable",
-							Command: []string{"bash", "-c", "/opt/kata-artifacts/scripts/kata-deploy.sh reset"},
+							Command: []string{"bash", "-c", "sleep", "5m"},
 							Env: []api_v1.EnvVar{
 								{
 									Name: "NODE_NAME",
@@ -274,13 +274,6 @@ var (
 								{
 									Name:      "systemd",
 									MountPath: "/run/systemd",
-								},
-							},
-							Lifecycle: &api_v1.Lifecycle{
-								PreStop: &api_v1.LifecycleHandler{
-									Exec: &api_v1.ExecAction{
-										Command: []string{"bash", "-c", "/opt/kata-artifacts/scripts/kata-deploy.sh cleanup"},
-									},
 								},
 							},
 							ImagePullPolicy: api_v1.PullAlways,

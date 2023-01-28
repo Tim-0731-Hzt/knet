@@ -14,16 +14,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
-	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/remotecommand"
 	utilexec "k8s.io/client-go/util/exec"
 	"k8s.io/kubectl/pkg/cmd/debug"
-	"k8s.io/kubectl/pkg/cmd/wait"
 	"k8s.io/kubectl/pkg/scheme"
 	"os"
 	"time"
@@ -296,7 +293,7 @@ func (k *KubernetesApiServiceImpl) GetKataDeployPod() (*v1.Pod, error) {
 
 func (k *KubernetesApiServiceImpl) ExecuteCleanupCommand() error {
 	listOptions := metav1.ListOptions{
-		LabelSelector: "kubelet-kata-cleanup",
+		LabelSelector: "name=kubelet-kata-cleanup",
 	}
 	pods, err := k.clientset.CoreV1().Pods("kube-system").List(context.TODO(), listOptions)
 	if err != nil {
@@ -308,7 +305,7 @@ func (k *KubernetesApiServiceImpl) ExecuteCleanupCommand() error {
 			PodName:   pod.Name,
 			Namespace: pod.Namespace,
 			Container: "kube-kata",
-			Command:   []string{"bash", "-c", "/opt/kata-artifacts/scripts/kata-deploy.sh cleanup"},
+			Command:   []string{"bash", "-c", "/opt/kata-artifacts/scripts/kata-deploy.sh reset"},
 			StdOut:    os.Stdout,
 		}
 		if _, err := k.ExecuteCommand(executeCleanupRequest); err != nil {
@@ -365,73 +362,4 @@ func (k *KubernetesApiServiceImpl) ExecuteVMCommand(req ExecCommandRequest) (int
 		}
 	}
 	return exitCode, nil
-}
-
-func (k *KubernetesApiServiceImpl) createPodWatcher(ctx context.Context, ls string, ns string) (watch.Interface, error) {
-	listOptions := metav1.ListOptions{
-		LabelSelector: ls,
-	}
-	return k.clientset.CoreV1().Pods(ns).Watch(ctx, listOptions)
-}
-
-func (k *KubernetesApiServiceImpl) WaitPodDeleted(ctx context.Context, ls string, ns string) error {
-	watcher, err := k.createPodWatcher(ctx, ls, ns)
-	if err != nil {
-		return err
-	}
-
-	defer watcher.Stop()
-
-	for {
-		select {
-		case event := <-watcher.ResultChan():
-			if event.Type == watch.Deleted {
-				return nil
-			}
-		}
-	}
-}
-
-func (k *KubernetesApiServiceImpl) WaitPodRunning(ctx context.Context, ls string, ns string) error {
-	watcher, err := k.createPodWatcher(ctx, ls, ns)
-	if err != nil {
-		return err
-	}
-
-	defer watcher.Stop()
-
-	for {
-		select {
-		case event := <-watcher.ResultChan():
-			pod := event.Object.(*v1.Pod)
-
-			if pod.Status.Phase == v1.PodRunning {
-				return nil
-			}
-		}
-	}
-}
-
-func (k *KubernetesApiServiceImpl) Wait(ls string) error {
-	dynamicClient, err := dynamic.NewForConfig(k.restConfig)
-	if err != nil {
-		return err
-	}
-	resourceBuilderFlags := &genericclioptions.ResourceBuilderFlags{
-		LabelSelector: &ls,
-	}
-	builder := resourceBuilderFlags.ToBuilder(KubernetesConfigFlags, []string{"pod"})
-	o := &wait.WaitOptions{
-		ResourceFinder: builder,
-		DynamicClient:  dynamicClient,
-		Timeout:        time.Duration(10) * time.Minute,
-		ForCondition:   "delete",
-		ConditionFn:    wait.IsDeleted,
-	}
-	err = o.RunWait()
-	if err != nil {
-		return err
-
-	}
-	return nil
 }

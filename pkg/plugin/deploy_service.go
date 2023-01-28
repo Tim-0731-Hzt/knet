@@ -1,12 +1,12 @@
 package plugin
 
 import (
-	"context"
 	"fmt"
 	"github.com/Tim-0731-Hzt/knet/pkg/kube"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"os"
+	"os/exec"
 )
 
 type DeployService struct {
@@ -54,7 +54,9 @@ func (d *DeployService) Run() error {
 	if err := d.kubeService.DeployDaemonSet(daemonSetDeployment); err != nil {
 		return err
 	}
-	if err := d.kubeService.WaitPodRunning(context.Background(), "name=kata-deploy", "kube-system"); err != nil {
+	cmd := exec.Command("kubectl", "-n", "kube-system", "wait", "--timeout=10m", "--for=condition=Ready", "-l", "name=kata-deploy", "pod")
+	if err := cmd.Run(); err != nil {
+		log.WithError(err).Errorf("failed to execute kubectl wait")
 		return err
 	}
 	QemuRuntimeClass := runtimeClass("kata-qemu", "250m", "160Mi")
