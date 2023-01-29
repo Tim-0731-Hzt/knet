@@ -24,24 +24,28 @@ func (d *DeleteService) Complete(cmd *cobra.Command, args []string) error {
 }
 
 func (d *DeleteService) Run() error {
+
 	log.Infof("delete kata-deploy")
 	if err := d.kubeService.DeleteDaemonSet("kata-deploy"); err != nil {
-		return err
+		//return err
 	}
 	cmd := exec.Command("kubectl", "-n", "kube-system", "wait", "--timeout=10m", "--for=delete", "-l", "name=kata-deploy", "pod")
 	if err := cmd.Run(); err != nil {
 		log.WithError(err).Errorf("failed to execute kubectl wait")
-		return err
+		//return err
 	}
+
 	log.Infof("deploy kubelet-kata-cleanup")
 	if err := d.kubeService.DeployDaemonSet(daemonSetCleanDeployment); err != nil {
-		return err
+		//return err
 	}
+
 	cmd = exec.Command("kubectl", "-n", "kube-system", "wait", "--timeout=10m", "--for=condition=Ready", "-l", "name=kubelet-kata-cleanup", "pod")
 	if err := cmd.Run(); err != nil {
 		log.WithError(err).Errorf("failed to execute kubectl wait")
 		return err
 	}
+
 	log.Infof("exec cleanup")
 	if err := d.kubeService.ExecuteCleanupCommand(); err != nil {
 		log.WithError(err).Errorf("failed to execute reset command")
@@ -60,9 +64,11 @@ func (d *DeleteService) Run() error {
 	if err := d.kubeService.DeleteRbac(); err != nil {
 		return err
 	}
+
 	log.Infof("delete runtimeclass")
 	if err := d.kubeService.DeleteRuntimeClass(); err != nil {
 		return err
 	}
+
 	return nil
 }

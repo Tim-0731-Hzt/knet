@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh/terminal"
 	"io"
 	apps_v1 "k8s.io/api/apps/v1"
@@ -279,7 +280,7 @@ func (k *KubernetesApiServiceImpl) DeleteRbac() error {
 	return nil
 }
 
-func (k *KubernetesApiServiceImpl) GetKataDeployPod() (*v1.Pod, error) {
+func (k *KubernetesApiServiceImpl) GetKataDeployPod(p *v1.Pod) (*v1.Pod, error) {
 	listOptions := metav1.ListOptions{
 		LabelSelector: "name=kata-deploy",
 	}
@@ -287,8 +288,12 @@ func (k *KubernetesApiServiceImpl) GetKataDeployPod() (*v1.Pod, error) {
 	if err != nil {
 		return nil, err
 	}
-	pod := pods.Items[0]
-	return &pod, nil
+	for _, pod := range pods.Items {
+		if pod.Spec.NodeName == p.Spec.NodeName {
+			return &pod, nil
+		}
+	}
+	return nil, errors.New("deploy pod not found")
 }
 
 func (k *KubernetesApiServiceImpl) ExecuteCleanupCommand() error {
@@ -336,11 +341,12 @@ func (k *KubernetesApiServiceImpl) ExecuteVMCommand(req ExecCommandRequest) (int
 	if err != nil {
 		return 1, err
 	}
-	defer func(fd int, oldState *terminal.State) {
+	defer func(fd int, oldState *terminal.State) error {
 		err := terminal.Restore(fd, oldState)
 		if err != nil {
-
+			return err
 		}
+		return nil
 	}(0, oldState)
 
 	// 用IO读写替换 os stdout

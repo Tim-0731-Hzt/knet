@@ -56,6 +56,8 @@ var (
 	}
 	privileged                = func() *bool { b := true; return &b }
 	hostPathDirectoryOrCreate = api_v1.HostPathDirectoryOrCreate
+	hostPathSocket            = api_v1.HostPathSocket
+	mountPropagation          = api_v1.MountPropagationHostToContainer
 	daemonSetDeployment       = &apps_v1.DaemonSet{
 		ObjectMeta: meta_v1.ObjectMeta{
 			Name:      "kata-deploy",
@@ -82,7 +84,7 @@ var (
 					Containers: []api_v1.Container{
 						{
 							Name:    "kube-kata",
-							Image:   "quay.io/kata-containers/kata-deploy:stable",
+							Image:   "docker.io/tim12312/kata-deploy:latest",
 							Command: []string{"bash", "-c", "/opt/kata-artifacts/scripts/kata-deploy.sh install"},
 							Env: []api_v1.EnvVar{
 								{
@@ -120,8 +122,8 @@ var (
 									MountPath: "/usr/local/bin/",
 								},
 								{
-									Name:      "dev",
-									MountPath: "/dev/",
+									Name:      "log",
+									MountPath: "/dev/log",
 								},
 							},
 							Lifecycle: &api_v1.Lifecycle{
@@ -188,10 +190,11 @@ var (
 							},
 						},
 						{
-							Name: "dev",
+							Name: "log",
 							VolumeSource: api_v1.VolumeSource{
 								HostPath: &api_v1.HostPathVolumeSource{
-									Path: "/dev/",
+									Path: "/dev/log",
+									Type: &hostPathSocket,
 								},
 							},
 						},
@@ -254,8 +257,9 @@ var (
 					Containers: []api_v1.Container{
 						{
 							Name:    "kube-kata",
-							Image:   "quay.io/kata-containers/kata-deploy:stable",
-							Command: []string{"bash", "-c", "sleep", "5m"},
+							Image:   "docker.io/tim12312/kata-deploy:latest",
+							Command: []string{"/bin/sh"},
+							Args:    []string{"-c", "sleep 500"},
 							Env: []api_v1.EnvVar{
 								{
 									Name: "NODE_NAME",

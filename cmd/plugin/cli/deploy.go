@@ -6,12 +6,13 @@ import (
 )
 
 func init() {
-	d := plugin.NewDeployService()
+
 	// tcpdumpCmd represents the tcpdump command
 	var deployCmd = &cobra.Command{
 		Use:   "deploy",
 		Short: "deploy kata containers on each node",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			d := plugin.NewDeployService()
 			err := d.Complete(cmd, args)
 			if err != nil {
 				return err

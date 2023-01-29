@@ -1,11 +1,9 @@
 package plugin
 
 import (
-	"fmt"
 	"github.com/Tim-0731-Hzt/knet/pkg/kube"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"os"
 	"os/exec"
 )
 
@@ -25,26 +23,6 @@ func (d *DeployService) Complete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 func (d *DeployService) Validate() error {
-
-	pod, err := d.kubeService.GetKataDeployPod()
-	if err != nil {
-		return err
-	}
-
-	executeKataRuntimeRequest := kube.ExecCommandRequest{
-		PodName:   pod.Name,
-		Namespace: pod.Namespace,
-		Container: pod.Spec.Containers[0].Name,
-		Command:   []string{"/opt/kata/bin/kata-runtime", "help"},
-		StdOut:    os.Stdout,
-		StdErr:    os.Stderr,
-	}
-	fmt.Println(executeKataRuntimeRequest)
-	log.Infof("exec called")
-	_, err = d.kubeService.ExecuteCommand(executeKataRuntimeRequest)
-	if err != nil {
-		return err
-	}
 	return nil
 }
 func (d *DeployService) Run() error {

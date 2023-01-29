@@ -41,7 +41,7 @@ func NewTcpdumpService(tcpdump *Tcpdump) *TcpdumpService {
 
 func (t *TcpdumpService) Complete(cmd *cobra.Command, args []string) error {
 	if t.Config.UserSpecifiedNamespace == "" {
-		return errors.New("namespace value is empty should be custom or default")
+		t.Config.UserSpecifiedNamespace = "default"
 	}
 	if t.Config.UserSpecifiedPodName == "" {
 		return errors.New("pod name is empty")
