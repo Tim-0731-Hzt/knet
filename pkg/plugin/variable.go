@@ -57,7 +57,6 @@ var (
 	privileged                = func() *bool { b := true; return &b }
 	hostPathDirectoryOrCreate = api_v1.HostPathDirectoryOrCreate
 	hostPathSocket            = api_v1.HostPathSocket
-	mountPropagation          = api_v1.MountPropagationHostToContainer
 	daemonSetDeployment       = &apps_v1.DaemonSet{
 		ObjectMeta: meta_v1.ObjectMeta{
 			Name:      "kata-deploy",

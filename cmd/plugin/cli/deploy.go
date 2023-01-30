@@ -6,8 +6,6 @@ import (
 )
 
 func init() {
-
-	// tcpdumpCmd represents the tcpdump command
 	var deployCmd = &cobra.Command{
 		Use:   "deploy",
 		Short: "deploy kata containers on each node",

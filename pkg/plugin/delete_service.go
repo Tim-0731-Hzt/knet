@@ -27,27 +27,29 @@ func (d *DeleteService) Run() error {
 
 	log.Infof("delete kata-deploy")
 	if err := d.kubeService.DeleteDaemonSet("kata-deploy"); err != nil {
-		//return err
+		return err
 	}
 	cmd := exec.Command("kubectl", "-n", "kube-system", "wait", "--timeout=10m", "--for=delete", "-l", "name=kata-deploy", "pod")
-	if err := cmd.Run(); err != nil {
-		log.WithError(err).Errorf("failed to execute kubectl wait")
-		//return err
-	}
-
-	log.Infof("deploy kubelet-kata-cleanup")
-	if err := d.kubeService.DeployDaemonSet(daemonSetCleanDeployment); err != nil {
-		//return err
-	}
-
-	cmd = exec.Command("kubectl", "-n", "kube-system", "wait", "--timeout=10m", "--for=condition=Ready", "-l", "name=kubelet-kata-cleanup", "pod")
 	if err := cmd.Run(); err != nil {
 		log.WithError(err).Errorf("failed to execute kubectl wait")
 		return err
 	}
 
+	log.Infof("create kubelet-kata-cleanup")
+	if err := d.kubeService.DeployDaemonSet(daemonSetCleanDeployment); err != nil {
+		return err
+	}
+
+	cmd = exec.Command("kubectl", "-n", "kube-system", "wait", "--timeout=10m", "--for=condition=Ready", "-l", "name=kubelet-kata-cleanup", "pod")
+	if err := cmd.Run(); err != nil {
+		log.WithError(err).Errorf("failed to execute kubectl wait")
+		log.Errorf("delete kubelet-kata-cleanup")
+		_ = d.kubeService.DeleteDaemonSet("kubelet-kata-cleanup")
+		return err
+	}
+
 	log.Infof("exec cleanup")
-	if err := d.kubeService.ExecuteCleanupCommand(); err != nil {
+	if err := d.kubeService.ExecuteDeployPodCommand("name=kubelet-kata-cleanup", []string{"bash", "-c", "/opt/kata-artifacts/scripts/kata-deploy.sh reset"}); err != nil {
 		log.WithError(err).Errorf("failed to execute reset command")
 		return err
 	}
@@ -60,15 +62,16 @@ func (d *DeleteService) Run() error {
 		log.WithError(err).Errorf("failed to execute kubectl wait")
 		return err
 	}
-	log.Infof("delete rbac")
+	log.Infof("delete kata-rbac")
 	if err := d.kubeService.DeleteRbac(); err != nil {
 		return err
 	}
 
-	log.Infof("delete runtimeclass")
-	if err := d.kubeService.DeleteRuntimeClass(); err != nil {
-		return err
+	log.Infof("delete kata-runtimeclass")
+	for _, s := range []string{"kata-qemu", "kata-clh", "kata-fc", "kata-dragonball"} {
+		if err := d.kubeService.DeleteRuntimeClass(s); err != nil {
+			return err
+		}
 	}
-
 	return nil
 }

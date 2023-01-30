@@ -23,8 +23,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// infoCmd represents the info command
-
 func init() {
 	e := plugin.NewExecService()
 	var execCmd = &cobra.Command{
@@ -53,5 +51,6 @@ func init() {
 	execCmd.Flags().StringVarP(&e.UserSpecifiedPodName, "pod", "p", "", "pod (optional)")
 	_ = viper.BindEnv("pod", "KUBECTL_PLUGINS_LOCAL_FLAG_POD")
 	_ = viper.BindPFlag("pod", cmd.Flags().Lookup("pod"))
+
 	cmd.AddCommand(execCmd)
 }

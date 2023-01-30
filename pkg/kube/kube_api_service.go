@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh/terminal"
 	"io"
 	apps_v1 "k8s.io/api/apps/v1"
@@ -12,6 +13,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	node_v1 "k8s.io/api/node/v1"
 	rbac "k8s.io/api/rbac/v1"
+	k_error "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
@@ -205,33 +207,52 @@ func (k *KubernetesApiServiceImpl) GenerateDebugContainer(podName string, namesp
 }
 
 func (k *KubernetesApiServiceImpl) DeployDaemonSet(d *apps_v1.DaemonSet) error {
-	_, err := k.clientset.AppsV1().DaemonSets("kube-system").Create(context.TODO(), d, metav1.CreateOptions{})
-	if err != nil {
-		return err
+	if _, err := k.clientset.AppsV1().DaemonSets("kube-system").Create(context.TODO(), d, metav1.CreateOptions{}); err != nil {
+		if k_error.IsAlreadyExists(err) {
+			log.Warnf(err.Error())
+		} else {
+			return err
+		}
 	}
 	return nil
 }
 
 func (k *KubernetesApiServiceImpl) CreateRuntimeClass(d *node_v1.RuntimeClass) error {
-	_, err := k.clientset.NodeV1().RuntimeClasses().Create(context.TODO(), d, metav1.CreateOptions{})
-	if err != nil {
-		return nil
+	if _, err := k.clientset.NodeV1().RuntimeClasses().Create(context.TODO(), d, metav1.CreateOptions{}); err != nil {
+		if k_error.IsAlreadyExists(err) {
+			log.Warnf(err.Error())
+		} else {
+			return err
+		}
 	}
-	return err
+	return nil
 }
 
 func (k *KubernetesApiServiceImpl) CreateRbac(sva *api_v1.ServiceAccount, cr *rbac.ClusterRole, crb *rbac.ClusterRoleBinding) error {
 	_, err := k.clientset.CoreV1().ServiceAccounts("kube-system").Create(context.TODO(), sva, metav1.CreateOptions{})
 	if err != nil {
-		return err
+		if k_error.IsAlreadyExists(err) {
+			log.Warnf(err.Error())
+		} else {
+			return err
+		}
 	}
 	_, err = k.clientset.RbacV1().ClusterRoles().Create(context.TODO(), cr, metav1.CreateOptions{})
 	if err != nil {
-		return err
+		if k_error.IsAlreadyExists(err) {
+			log.Warnf(err.Error())
+		} else {
+			return err
+		}
 	}
 	_, err = k.clientset.RbacV1().ClusterRoleBindings().Create(context.TODO(), crb, metav1.CreateOptions{})
 	if err != nil {
-		return err
+		if k_error.IsAlreadyExists(err) {
+			log.Warnf(err.Error())
+			return nil
+		} else {
+			return err
+		}
 	}
 	return nil
 }
@@ -239,27 +260,23 @@ func (k *KubernetesApiServiceImpl) CreateRbac(sva *api_v1.ServiceAccount, cr *rb
 func (k *KubernetesApiServiceImpl) DeleteDaemonSet(d string) error {
 	err := k.clientset.AppsV1().DaemonSets("kube-system").Delete(context.TODO(), d, metav1.DeleteOptions{})
 	if err != nil {
-		return err
+		if k_error.IsNotFound(err) {
+			log.Warnf(err.Error())
+		} else {
+			return err
+		}
 	}
 	return nil
 }
 
-func (k *KubernetesApiServiceImpl) DeleteRuntimeClass() error {
-	err := k.clientset.NodeV1().RuntimeClasses().Delete(context.TODO(), "kata-qemu", metav1.DeleteOptions{})
+func (k *KubernetesApiServiceImpl) DeleteRuntimeClass(s string) error {
+	err := k.clientset.NodeV1().RuntimeClasses().Delete(context.TODO(), s, metav1.DeleteOptions{})
 	if err != nil {
-		return err
-	}
-	err = k.clientset.NodeV1().RuntimeClasses().Delete(context.TODO(), "kata-clh", metav1.DeleteOptions{})
-	if err != nil {
-		return err
-	}
-	err = k.clientset.NodeV1().RuntimeClasses().Delete(context.TODO(), "kata-fc", metav1.DeleteOptions{})
-	if err != nil {
-		return err
-	}
-	err = k.clientset.NodeV1().RuntimeClasses().Delete(context.TODO(), "kata-dragonball", metav1.DeleteOptions{})
-	if err != nil {
-		return err
+		if k_error.IsNotFound(err) {
+			log.Warnf(err.Error())
+		} else {
+			return err
+		}
 	}
 	return nil
 }
@@ -267,15 +284,27 @@ func (k *KubernetesApiServiceImpl) DeleteRuntimeClass() error {
 func (k *KubernetesApiServiceImpl) DeleteRbac() error {
 	err := k.clientset.CoreV1().ServiceAccounts("kube-system").Delete(context.TODO(), "kata-label-node", metav1.DeleteOptions{})
 	if err != nil {
-		return err
+		if k_error.IsNotFound(err) {
+			log.Warnf(err.Error())
+		} else {
+			return err
+		}
 	}
 	err = k.clientset.RbacV1().ClusterRoles().Delete(context.TODO(), "node-labeler", metav1.DeleteOptions{})
 	if err != nil {
-		return err
+		if k_error.IsNotFound(err) {
+			log.Warnf(err.Error())
+		} else {
+			return err
+		}
 	}
 	err = k.clientset.RbacV1().ClusterRoleBindings().Delete(context.TODO(), "kata-label-node-rb", metav1.DeleteOptions{})
 	if err != nil {
-		return err
+		if k_error.IsNotFound(err) {
+			log.Warnf(err.Error())
+		} else {
+			return err
+		}
 	}
 	return nil
 }
@@ -296,9 +325,9 @@ func (k *KubernetesApiServiceImpl) GetKataDeployPod(p *v1.Pod) (*v1.Pod, error) 
 	return nil, errors.New("deploy pod not found")
 }
 
-func (k *KubernetesApiServiceImpl) ExecuteCleanupCommand() error {
+func (k *KubernetesApiServiceImpl) ExecuteDeployPodCommand(ls string, cmd []string) error {
 	listOptions := metav1.ListOptions{
-		LabelSelector: "name=kubelet-kata-cleanup",
+		LabelSelector: ls,
 	}
 	pods, err := k.clientset.CoreV1().Pods("kube-system").List(context.TODO(), listOptions)
 	if err != nil {
@@ -310,7 +339,7 @@ func (k *KubernetesApiServiceImpl) ExecuteCleanupCommand() error {
 			PodName:   pod.Name,
 			Namespace: pod.Namespace,
 			Container: "kube-kata",
-			Command:   []string{"bash", "-c", "/opt/kata-artifacts/scripts/kata-deploy.sh reset"},
+			Command:   cmd,
 			StdOut:    os.Stdout,
 		}
 		if _, err := k.ExecuteCommand(executeCleanupRequest); err != nil {

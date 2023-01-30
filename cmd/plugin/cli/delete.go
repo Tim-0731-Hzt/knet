@@ -7,7 +7,6 @@ import (
 
 func init() {
 	d := plugin.NewDeleteService()
-	// tcpdumpCmd represents the tcpdump command
 	var deleteCmd = &cobra.Command{
 		Use:   "delete",
 		Short: "delete kata containers on each node",
@@ -23,5 +22,6 @@ func init() {
 			return nil
 		},
 	}
+
 	cmd.AddCommand(deleteCmd)
 }

@@ -26,9 +26,11 @@ func (d *DeployService) Validate() error {
 	return nil
 }
 func (d *DeployService) Run() error {
+	log.Infof("create kata-rbac")
 	if err := d.kubeService.CreateRbac(serviceAccount, clusterRole, clusterRoleBinding); err != nil {
 		return err
 	}
+	log.Infof("create kata-deploy")
 	if err := d.kubeService.DeployDaemonSet(daemonSetDeployment); err != nil {
 		return err
 	}
@@ -37,6 +39,7 @@ func (d *DeployService) Run() error {
 		log.WithError(err).Errorf("failed to execute kubectl wait")
 		return err
 	}
+	log.Infof("create kata-runtimeclass")
 	QemuRuntimeClass := runtimeClass("kata-qemu", "250m", "160Mi")
 	if err := d.kubeService.CreateRuntimeClass(QemuRuntimeClass); err != nil {
 		return err
