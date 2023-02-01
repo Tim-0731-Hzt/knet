@@ -9,26 +9,20 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"os"
 	"os/exec"
-	"strings"
+	"os/signal"
+	"sync"
 	"time"
 )
 
 type TcpdumpService struct {
 	kubeService *kube.KubernetesApiServiceImpl
-	Wireshark   *exec.Cmd
 	Config      *Tcpdump
-	TargetPod   *v1.Pod
 }
 
 type Tcpdump struct {
-	UserSpecifiedPodName     string
-	DetectedPodNodeName      string
-	UserSpecifiedInterface   string
-	UserSpecifiedFilter      string
-	UserSpecifiedContainer   string
-	UserSpecifiedNamespace   string
-	DetectedContainerRuntime string
-	DetectedContainerId      string
+	UserSpecifiedNamespace string
+	UserSpecifiedPodsName  []string
+	UserSpecifiedPods      map[string]*v1.Pod
 }
 
 func NewTcpdumpConfig() *Tcpdump {
@@ -43,7 +37,7 @@ func (t *TcpdumpService) Complete(cmd *cobra.Command, args []string) error {
 	if t.Config.UserSpecifiedNamespace == "" {
 		t.Config.UserSpecifiedNamespace = "default"
 	}
-	if t.Config.UserSpecifiedPodName == "" {
+	if len(t.Config.UserSpecifiedPodsName) == 0 {
 		return errors.New("pod name is empty")
 	}
 	var err error
@@ -51,71 +45,105 @@ func (t *TcpdumpService) Complete(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	t.Config.UserSpecifiedPods = make(map[string]*v1.Pod)
 	return nil
 }
 func (t *TcpdumpService) Validate() error {
 	log.Infof("validate pod")
-	pod, err := t.kubeService.GetPod(t.Config.UserSpecifiedPodName, t.Config.UserSpecifiedNamespace)
-	if err != nil {
-		return err
-	}
-	t.TargetPod = pod.DeepCopy()
-	if pod.Status.Phase == v1.PodSucceeded || pod.Status.Phase == v1.PodFailed {
-		return errors.Errorf("cannot sniff on a container in a completed pod; current phase is %s", pod.Status.Phase)
-	}
-	t.Config.DetectedPodNodeName = pod.Spec.NodeName
-
-	if len(pod.Spec.Containers) < 1 {
-		return errors.New("no containers in specified pod")
-	}
-
-	if t.Config.UserSpecifiedContainer == "" {
-		t.Config.UserSpecifiedContainer = pod.Spec.Containers[0].Name
-	}
-	if err := t.findContainerId(pod); err != nil {
-		return err
+	for _, p := range t.Config.UserSpecifiedPodsName {
+		pod, err := t.kubeService.GetPod(p, t.Config.UserSpecifiedNamespace)
+		if err != nil {
+			return err
+		}
+		if pod.Status.Phase == v1.PodSucceeded || pod.Status.Phase == v1.PodFailed {
+			return errors.Errorf("cannot tcpdump on a container in a completed pod; current phase is %s", pod.Status.Phase)
+		}
+		t.Config.UserSpecifiedPods[p] = pod
 	}
 	return nil
 }
 func (t *TcpdumpService) Run() error {
-	log.Infof("start tcpdump on pod %s", t.Config.UserSpecifiedPodName)
-	log.Infof("creating ephemeral container")
-	debugContainerName := namegenerator.NewNameGenerator(time.Now().UTC().UnixNano()).Generate()
-	_, _, err := t.kubeService.GenerateDebugContainer(t.Config.UserSpecifiedPodName, t.Config.UserSpecifiedNamespace, t.Config.UserSpecifiedContainer, debugContainerName)
-	if err != nil {
-		log.WithError(err).Errorf("failed to create debug container")
-		return err
-	}
-	executeTcpdumpRequest := kube.ExecCommandRequest{
-		PodName:   t.Config.UserSpecifiedPodName,
-		Namespace: t.Config.UserSpecifiedNamespace,
-		Container: debugContainerName,
-		Command:   []string{"/usr/bin/tcpdump", "-w", "-"},
-		StdOut:    os.Stdout,
-	}
-	log.Infof("spawning termshark!")
-	_, err = t.kubeService.ExecuteCommand(executeTcpdumpRequest)
-	if err != nil {
-		log.WithError(err).Errorf("failed to execute tcpdump")
-		return err
-	}
-	return nil
-}
-
-func (t *TcpdumpService) findContainerId(pod *v1.Pod) error {
-	for _, containerStatus := range pod.Status.ContainerStatuses {
-		if t.Config.UserSpecifiedContainer == containerStatus.Name {
-			result := strings.Split(containerStatus.ContainerID, "://")
-			if len(result) != 2 {
-				break
+	if len(t.Config.UserSpecifiedPodsName) > 1 {
+		dir, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		errs := make(chan error, 1)
+		go func() {
+			sigchan := make(chan os.Signal, 1)
+			signal.Notify(sigchan, os.Interrupt)
+			<-sigchan
+			log.Println("stop capture")
+			var args = []string{"-w", dir + "/merge.pcap"}
+			for _, p := range t.Config.UserSpecifiedPodsName {
+				args = append(args, dir+"/"+p+".pcap")
 			}
-			t.Config.DetectedContainerRuntime = result[0]
-			t.Config.DetectedContainerId = result[1]
-			return nil
+			cmd := exec.Command("mergecap", args...)
+			err = cmd.Run()
+			if err != nil {
+				errs <- err
+			}
+			log.Println("pcap file will be stored in " + dir + "/merge.pcap")
+			os.Exit(0)
+		}()
+		var wg sync.WaitGroup
+		wg.Add(len(t.Config.UserSpecifiedPodsName))
+		for _, p := range t.Config.UserSpecifiedPodsName {
+			log.Infof("creating ephemeral container inside pod %s", p)
+			debugContainerName := namegenerator.NewNameGenerator(time.Now().UTC().UnixNano()).Generate()
+			_, _, err := t.kubeService.GenerateDebugContainer(p, "default", t.Config.UserSpecifiedPods[p].Spec.Containers[0].Name, debugContainerName)
+			if err != nil {
+				log.WithError(err).Errorf("failed to create debug container")
+				return err
+			}
+			f, err := os.OpenFile(dir+"/"+p+".pcap", os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0600)
+			if err != nil {
+				panic(err)
+			}
+			defer f.Close()
+			executeTcpdumpRequest := kube.ExecCommandRequest{
+				PodName:   p,
+				Namespace: t.Config.UserSpecifiedNamespace,
+				Container: debugContainerName,
+				Command:   []string{"/usr/bin/tcpdump", "-w", "-"},
+				StdOut:    f,
+			}
+			log.Infof("start capture")
+			go func() {
+				defer wg.Done()
+				_, err = t.kubeService.ExecuteCommand(executeTcpdumpRequest)
+				if err != nil {
+					log.WithError(err).Errorf("failed to execute tcpdump")
+				}
+			}()
+		}
+		if err, open := <-errs; open {
+			return err
+		}
+		wg.Wait()
+	} else {
+		podName := t.Config.UserSpecifiedPodsName[0]
+		debugContainerName := namegenerator.NewNameGenerator(time.Now().UTC().UnixNano()).Generate()
+		_, _, err := t.kubeService.GenerateDebugContainer(podName, t.Config.UserSpecifiedNamespace, t.Config.UserSpecifiedPods[podName].Spec.Containers[0].Name, debugContainerName)
+		if err != nil {
+			log.WithError(err).Errorf("failed to create debug container")
+			return err
+		}
+		executeTcpdumpRequest := kube.ExecCommandRequest{
+			PodName:   podName,
+			Namespace: t.Config.UserSpecifiedNamespace,
+			Container: debugContainerName,
+			Command:   []string{"/usr/bin/tcpdump", "-w", "-"},
+			StdOut:    os.Stdout,
+		}
+		log.Infof("spawning termshark!")
+		_, err = t.kubeService.ExecuteCommand(executeTcpdumpRequest)
+		if err != nil {
+			log.WithError(err).Errorf("failed to execute tcpdump")
+			return err
 		}
 	}
-
-	return errors.Errorf("couldn't find container: '%s' in pod: '%s'", t.Config.UserSpecifiedContainer, t.Config.UserSpecifiedPodName)
+	return nil
 }
 
 func (t *TcpdumpService) cleanup() error {

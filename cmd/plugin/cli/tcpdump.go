@@ -53,9 +53,7 @@ func init() {
 	_ = viper.BindEnv("namespace", "KUBECTL_PLUGINS_CURRENT_NAMESPACE")
 	_ = viper.BindPFlag("namespace", cmd.Flags().Lookup("namespace"))
 
-	tcpdumpCmd.Flags().StringVarP(&t.Config.UserSpecifiedPodName, "pod", "p", "", "pod (optional)")
-	_ = viper.BindEnv("pod", "KUBECTL_PLUGINS_LOCAL_FLAG_POD")
-	_ = viper.BindPFlag("pod", cmd.Flags().Lookup("pod"))
+	tcpdumpCmd.Flags().StringSliceVarP(&t.Config.UserSpecifiedPodsName, "pod", "p", []string{}, "pod(optional)")
 
 	cmd.AddCommand(tcpdumpCmd)
 }

@@ -87,7 +87,6 @@ func (k *KubernetesApiServiceImpl) ExecuteCommand(req ExecCommandRequest) (int, 
 		Command:   req.Command,
 		Stdin:     req.StdIn != nil,
 		Stdout:    req.StdOut != nil,
-		Stderr:    false,
 		TTY:       false,
 	}, scheme.ParameterCodec)
 	exec, err := remotecommand.NewSPDYExecutor(k.restConfig, "POST", execRequest.URL())
